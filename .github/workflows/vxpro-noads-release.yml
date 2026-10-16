@@ -66,22 +66,6 @@ jobs:
           echo "$UPLOAD_KEY" | base64 --decode > android/upload-keystore.jks
           echo "$KEY_PROPERTY" | base64 --decode > android/key.properties
 
-      - name: Configure ARM64 ABI
-        run: |
-          python3 - <<'PYTHON'
-          from pathlib import Path
-          p = Path("android/app/build.gradle.kts")
-          s = p.read_text()
-          marker = '            abiFilters += listOf("arm64-v8a")'
-          if marker not in s:
-              s = s.replace(
-                  '        versionName = flutter.versionName',
-                  '        versionName = flutter.versionName\n\n        ndk {\n' + marker + '\n        }',
-                  1
-              )
-          p.write_text(s)
-          PYTHON
-
       - name: Build ARM64 release APK
         env:
           LOG_KEY: ${{ secrets.LOG_KEY }}
