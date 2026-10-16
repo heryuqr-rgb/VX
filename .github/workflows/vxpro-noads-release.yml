@@ -12,66 +12,105 @@ jobs:
     runs-on: ubuntu-24.04
 
     steps:
+      # 1. Checkout source VX Pro no-ads
       - name: Checkout VX Pro No-Ads
         uses: actions/checkout@v4
         with:
           ref: noads-release
 
+      # 2. Download dependencies
       - name: Checkout dependencies
         shell: bash
         run: |
           cd ..
-          git clone https://github.com/5VNetwork/tm-plugin.git tm-plugin
-          git clone --branch noads-release https://github.com/heryuqr-rgb/flutter_common.git flutter_common
 
+          git clone \
+            https://github.com/5VNetwork/tm-plugin.git \
+            tm-plugin
+
+          git clone \
+            --branch noads-release \
+            https://github.com/heryuqr-rgb/flutter_common.git \
+            flutter_common
+
+      # 3. Create required directories and placeholders
       - name: Create required files
         shell: bash
         run: |
+          set -eux
+
+          # VX Pro assets
+          mkdir -p assets/google_fonts
+          mkdir -p assets/geo
+          mkdir -p assets/ads
+
+          # flutter_common ads assets
+          mkdir -p ../flutter_common/packages/ads/assets/ads
+
+          # tm-plugin directories
           mkdir -p ../tm-plugin/tm_windows/assets
           mkdir -p ../tm-plugin/tm_linux/assets
           mkdir -p ../tm-plugin/tm_android/android/libs
-          mkdir -p assets/google_fonts
-          mkdir -p assets/geo
 
+          # Windows placeholders
           touch ../tm-plugin/tm_windows/assets/x.dll
           touch ../tm-plugin/tm_windows/assets/wintun.dll
           touch ../tm-plugin/tm_windows/assets/vx_service.zip
+
+          # Linux placeholders
+          touch ../tm-plugin/tm_linux/assets/x.so
           touch ../tm-plugin/tm_linux/assets/x
-          touch ../tm-plugin/tm_linux/assets/wintun
 
-      - name: Verify no-ads source
-        shell: bash
-        run: |
-          echo "Checking VX Pro source..."
-          grep -n "AdsProvider" lib/main.dart
-          echo "Checking flutter_common ad source..."
-          grep -n "class Ads" ../flutter_common/packages/ads/lib/ad.dart
+          # Confirm required paths exist
+          test -d assets/ads
+          test -d ../flutter_common/packages/ads/assets/ads
+          test -f ../tm-plugin/tm_linux/assets/x.so
 
+      # 4. Download GeoIP and GeoSite databases
       - name: Download geo
         shell: bash
         run: |
-          mkdir -p assets/geo
-          curl -fL "https://github.com/5VNetwork/process-geo/releases/latest/download/simplified_geoip.dat" -o assets/geo/simplified_geoip.dat
-          curl -fL "https://github.com/5VNetwork/process-geo/releases/latest/download/simplified_geosite.dat" -o assets/geo/simplified_geosite.dat
+          set -eux
 
+          mkdir -p assets/geo
+
+          curl -fL --retry 3 \
+            "https://github.com/5VNetwork/process-geo/releases/latest/download/simplified_geoip.dat" \
+            -o assets/geo/simplified_geoip.dat
+
+          curl -fL --retry 3 \
+            "https://github.com/5VNetwork/process-geo/releases/latest/download/simplified_geosite.dat" \
+            -o assets/geo/simplified_geosite.dat
+
+          ls -lh assets/geo
+
+      # 5. Download Android native library
       - name: Download library from release
         env:
           GH_TOKEN: ${{ secrets.PAT_TOKEN }}
         shell: bash
         run: |
+          set -eux
+
           gh release download build \
             -R 5VNetwork/vx-core \
             -p "x.aar"
 
-          cp x.aar ../tm-plugin/tm_android/android/libs/x.aar
-          test -s ../tm-plugin/tm_android/android/libs/x.aar
+          test -s x.aar
 
+          cp x.aar \
+            ../tm-plugin/tm_android/android/libs/x.aar
+
+          ls -lh ../tm-plugin/tm_android/android/libs/x.aar
+
+      # 6. Setup Java
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
+      # 7. Setup Flutter
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
@@ -79,9 +118,13 @@ jobs:
           flutter-version: '3.47.7'
           cache: true
 
+      # 8. Show Flutter version
       - name: Show Flutter version
-        run: flutter --version
+        run: |
+          flutter --version
+          java -version
 
+      # 9. Cache pub dependencies
       - name: Cache pub dependencies
         uses: actions/cache@v4
         with:
@@ -92,15 +135,19 @@ jobs:
           restore-keys: |
             pub-${{ runner.os }}-
 
+      # 10. Install dependencies
       - name: Install Flutter dependencies
         run: flutter pub get
 
+      # 11. Configure Android signing
       - name: Configure Android signing
         env:
           UPLOAD_KEY: ${{ secrets.UPLOAD_KEY }}
           KEY_PROPERTY: ${{ secrets.KEY_PROPERTY }}
         shell: bash
         run: |
+          set -eu
+
           test -n "$UPLOAD_KEY" || {
             echo "Missing UPLOAD_KEY secret"
             exit 1
@@ -111,19 +158,26 @@ jobs:
             exit 1
           }
 
-          mkdir -p android
-          echo "$UPLOAD_KEY" | base64 --decode > android/upload-keystore.jks
-          echo "$KEY_PROPERTY" | base64 --decode > android/key.properties
+          echo "$UPLOAD_KEY" | base64 --decode \
+            > android/upload-keystore.jks
+
+          echo "$KEY_PROPERTY" | base64 --decode \
+            > android/key.properties
 
           test -s android/upload-keystore.jks
           test -s android/key.properties
 
+          echo "Android signing files created."
+
+      # 12. Build ARM64 release APK
       - name: Build ARM64 Release APK
         env:
           LOG_KEY: ${{ secrets.LOG_KEY }}
           CN_DIRECT_APPS_KEY: ${{ secrets.CN_DIRECT_APPS_KEY }}
         shell: bash
         run: |
+          set -eu
+
           flutter build apk \
             --release \
             --flavor apk \
@@ -131,24 +185,29 @@ jobs:
             --dart-define=LOG_KEY="$LOG_KEY" \
             --dart-define=CN_DIRECT_APPS_KEY="$CN_DIRECT_APPS_KEY"
 
+      # 13. Verify APK
       - name: Verify APK
         shell: bash
         run: |
-          APK="$(find build/app/outputs/flutter-apk -maxdepth 1 -type f -name '*.apk' -print -quit)"
+          set -eu
 
-          if [ -z "$APK" ] || [ ! -s "$APK" ]; then
-            echo "APK release ARM64 tidak ditemukan!"
+          APK="build/app/outputs/flutter-apk/app-apk-arm64-v8a-release.apk"
+
+          if [ ! -s "$APK" ]; then
+            echo "ARM64 release APK not found at expected path."
+            echo "Available APK files:"
             find build/app/outputs -type f -name '*.apk' -print
             exit 1
           fi
 
-          echo "APK berhasil dibuat:"
+          echo "APK successfully created:"
           ls -lh "$APK"
 
+      # 14. Upload APK artifact
       - name: Upload release APK
         uses: actions/upload-artifact@v4
         with:
           name: VX-Pro-noads-arm64-release
-          path: build/app/outputs/flutter-apk/*.apk
+          path: build/app/outputs/flutter-apk/app-apk-arm64-v8a-release.apk
           if-no-files-found: error
           retention-days: 7
