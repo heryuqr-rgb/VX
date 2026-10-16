@@ -25,6 +25,8 @@ import 'package:image/image.dart' as img;
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:pasteboard/pasteboard.dart';
 import 'package:tm/protos/vx/outbound/outbound.pb.dart';
+import 'package:protobuf/well_known_types/google/protobuf/any.pb.dart';
+import 'package:tm/protos/vx/proxy/wireguard/config.pb.dart';
 import 'package:vx/app/outbound/add_realm_device.dart';
 import 'package:vx/app/outbound/add_chain_handler.dart';
 import 'package:vx/app/outbound/outbound_page.dart';
@@ -318,6 +320,100 @@ Future<void> getNodesFromUrls(
       }
       subBloc.add(AddSubscriptionEvent(tag, data));
     } else {
+      // Decode WireGuard share links directly into VX protobuf configs.
+      if (data.trimLeft().toLowerCase().startsWith('wireguard://')) {
+        final uri = Uri.parse(data.trim());
+        final secretKey = uri.userInfo;
+        final publicKey = uri.queryParameters['publickey'] ?? '';
+        final addressValue = uri.queryParameters['address'] ?? '';
+
+        if (secretKey.isEmpty ||
+            publicKey.isEmpty ||
+            uri.host.isEmpty ||
+            uri.port <= 0 ||
+            addressValue.isEmpty) {
+          throw const FormatException(
+            'WireGuard link is missing its key, endpoint, or address.',
+          );
+        }
+
+        final localAddresses = addressValue
+            .split(',')
+            .map((value) => value.trim())
+            .where((value) => value.isNotEmpty)
+            .toList();
+
+        if (localAddresses.isEmpty) {
+          throw const FormatException('WireGuard address is empty.');
+        }
+
+        final allowedValue =
+            uri.queryParameters['allowedips'] ??
+            uri.queryParameters['allowedIPs'];
+        final allowedIps = allowedValue == null || allowedValue.trim().isEmpty
+            ? <String>['0.0.0.0/0', '::/0']
+            : allowedValue
+                .split(',')
+                .map((value) => value.trim())
+                .where((value) => value.isNotEmpty)
+                .toList();
+
+        final reservedValue = uri.queryParameters['reserved'];
+        final reserved = reservedValue == null || reservedValue.isEmpty
+            ? <int>[]
+            : reservedValue.split(',').map((value) {
+                final byte = int.tryParse(value.trim());
+                if (byte == null || byte < 0 || byte > 255) {
+                  throw const FormatException(
+                    'WireGuard reserved values must be bytes from 0 to 255.',
+                  );
+                }
+                return byte;
+              }).toList();
+
+        final host = uri.host.contains(':') && !uri.host.startsWith('[')
+            ? '[${uri.host}]'
+            : uri.host;
+
+        final device = DeviceConfig(
+          secretKey: secretKey,
+          endpoint: localAddresses,
+          peers: [
+            PeerConfig(
+              publicKey: publicKey,
+              endpoint: '$host:${uri.port}',
+              keepAlive: 25,
+              allowedIps: allowedIps,
+            ),
+          ],
+          mtu: int.tryParse(uri.queryParameters['mtu'] ?? '') ?? 1280,
+          reserved: reserved,
+        );
+
+        final tag = uri.fragment.isNotEmpty ? uri.fragment : 'WireGuard';
+        final group = await _showGroupPickerDialog(context, outboundRepo);
+
+        outbloc.add(
+          AddHandlersEvent(
+            [
+              HandlerConfig(
+                outbound: OutboundHandlerConfig(
+                  tag: tag,
+                  address: '',
+                  protocol: Any.pack(device),
+                ),
+              ),
+            ],
+            groupName: group,
+          ),
+        );
+
+        rootScaffoldMessengerKey.currentState?.showSnackBar(
+          SnackBar(content: Text('WireGuard node added: $tag')),
+        );
+        return;
+      }
+
       // try decode as HandlerConfigs first
       List<HandlerConfig> configs = [];
       try {
