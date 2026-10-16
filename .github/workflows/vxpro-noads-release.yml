@@ -8,103 +8,46 @@ permissions:
 
 jobs:
   build:
-    name: Build ARM64 Release APK
     runs-on: ubuntu-24.04
-
     steps:
-      # 1. Checkout source no-ads
-      - name: Checkout VX Pro No-Ads
+      - name: Checkout VX Pro
         uses: actions/checkout@v4
         with:
           ref: noads-release
 
-      # 2. Checkout dependencies
       - name: Checkout dependencies
-        shell: bash
         run: |
-          set -eux
-          cd ..
+          git clone --branch noads-release https://github.com/heryuqr-rgb/flutter_common.git ../flutter_common
+          git clone https://github.com/5VNetwork/tm-plugin.git ../tm-plugin
 
-          git clone \
-            https://github.com/5VNetwork/tm-plugin.git \
-            tm-plugin
-
-          git clone \
-            --branch noads-release \
-            https://github.com/heryuqr-rgb/flutter_common.git \
-            flutter_common
-
-      # 3. Create required files and directories
       - name: Create required files
-        shell: bash
         run: |
-          set -eux
-
-          mkdir -p assets/google_fonts
-          mkdir -p assets/geo
-          mkdir -p assets/ads
-          mkdir -p ../flutter_common/packages/ads/assets/ads
-
-          mkdir -p ../tm-plugin/tm_windows/assets
-          mkdir -p ../tm-plugin/tm_linux/assets
-          mkdir -p ../tm-plugin/tm_android/android/libs
-
           touch ../tm-plugin/tm_windows/assets/x.dll
           touch ../tm-plugin/tm_windows/assets/wintun.dll
           touch ../tm-plugin/tm_windows/assets/vx_service.zip
-
           touch ../tm-plugin/tm_linux/assets/x.so
           touch ../tm-plugin/tm_linux/assets/x
+          mkdir -p ../tm-plugin/tm_android/android/libs
+          mkdir -p assets/google_fonts assets/geo
 
-          test -d assets/ads
-          test -d ../flutter_common/packages/ads/assets/ads
-          test -f ../tm-plugin/tm_linux/assets/x.so
-
-      # 4. Download geo databases
-      - name: Download geo
-        shell: bash
+      - name: Download geo data
         run: |
-          set -eux
+          curl -fL https://github.com/5VNetwork/process-geo/releases/latest/download/simplified_geoip.dat -o assets/geo/simplified_geoip.dat
+          curl -fL https://github.com/5VNetwork/process-geo/releases/latest/download/simplified_geosite.dat -o assets/geo/simplified_geosite.dat
 
-          mkdir -p assets/geo
-
-          curl -fL --retry 3 \
-            "https://github.com/5VNetwork/process-geo/releases/latest/download/simplified_geoip.dat" \
-            -o assets/geo/simplified_geoip.dat
-
-          curl -fL --retry 3 \
-            "https://github.com/5VNetwork/process-geo/releases/latest/download/simplified_geosite.dat" \
-            -o assets/geo/simplified_geosite.dat
-
-          ls -lh assets/geo
-
-      # 5. Download Android native library
-      - name: Download library from release
+      - name: Download Android library
         env:
           GH_TOKEN: ${{ secrets.PAT_TOKEN }}
-        shell: bash
         run: |
-          set -eux
+          gh release download build -R 5VNetwork/vx-core -p "x.aar"
+          cp x.aar ../tm-plugin/tm_android/android/libs/x.aar
 
-          gh release download build \
-            -R 5VNetwork/vx-core \
-            -p "x.aar"
-
-          test -s x.aar
-
-          cp x.aar \
-            ../tm-plugin/tm_android/android/libs/x.aar
-
-          ls -lh ../tm-plugin/tm_android/android/libs/x.aar
-
-      # 6. Setup Java
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
-      # 7. Setup Flutter
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
@@ -112,105 +55,48 @@ jobs:
           flutter-version: '3.47.7'
           cache: true
 
-      # 8. Verify toolchain
-      - name: Show Flutter version
-        run: |
-          flutter --version
-          java -version
-
-      # 9. Cache dependencies
-      - name: Cache pub dependencies
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.pub-cache
-            ${{ github.workspace }}/.dart_tool
-          key: pub-${{ runner.os }}-${{ hashFiles('**/pubspec.lock') }}
-          restore-keys: |
-            pub-${{ runner.os }}-
-
-      # 10. Install Flutter dependencies
-      - name: Install Flutter dependencies
+      - name: Get dependencies
         run: flutter pub get
 
-      # 11. Configure Android signing
-      - name: Configure Android signing
+      - name: Configure signing
         env:
           UPLOAD_KEY: ${{ secrets.UPLOAD_KEY }}
           KEY_PROPERTY: ${{ secrets.KEY_PROPERTY }}
-        shell: bash
         run: |
-          set -eu
+          echo "$UPLOAD_KEY" | base64 --decode > android/upload-keystore.jks
+          echo "$KEY_PROPERTY" | base64 --decode > android/key.properties
 
-          test -n "$UPLOAD_KEY" || {
-            echo "Missing UPLOAD_KEY secret"
-            exit 1
-          }
+      - name: Configure ARM64 ABI
+        run: |
+          python3 - <<'PYTHON'
+          from pathlib import Path
+          p = Path("android/app/build.gradle.kts")
+          s = p.read_text()
+          marker = '            abiFilters += listOf("arm64-v8a")'
+          if marker not in s:
+              s = s.replace(
+                  '        versionName = flutter.versionName',
+                  '        versionName = flutter.versionName\n\n        ndk {\n' + marker + '\n        }',
+                  1
+              )
+          p.write_text(s)
+          PYTHON
 
-          test -n "$KEY_PROPERTY" || {
-            echo "Missing KEY_PROPERTY secret"
-            exit 1
-          }
-
-          echo "$UPLOAD_KEY" | base64 --decode \
-            > android/vxpro-release.jks
-
-          echo "$KEY_PROPERTY" | base64 --decode \
-            > android/key.properties
-
-          mkdir -p android/app
-
-          cp android/vxpro-release.jks \
-            android/app/vxpro-release.jks
-
-          test -s android/vxpro-release.jks
-          test -s android/app/vxpro-release.jks
-          test -s android/key.properties
-
-          echo "Signing files are ready."
-
-      # 12. Build ARM64 release APK
-      - name: Build ARM64 Release APK
+      - name: Build ARM64 release APK
         env:
           LOG_KEY: ${{ secrets.LOG_KEY }}
           CN_DIRECT_APPS_KEY: ${{ secrets.CN_DIRECT_APPS_KEY }}
-        shell: bash
         run: |
-          set -eu
-
-          flutter build apk \
-            --release \
-            --flavor apk \
-            --target-platform android-arm64 \
+          flutter build apk --release --flavor apk --target-platform android-arm64 --split-per-abi \
             --dart-define=LOG_KEY="$LOG_KEY" \
             --dart-define=CN_DIRECT_APPS_KEY="$CN_DIRECT_APPS_KEY"
+          echo "===== APK OUTPUTS ====="
+          find build/app/outputs/flutter-apk -maxdepth 1 -type f -name '*.apk' -exec ls -lh {} \;
 
-      # 13. Verify APK
-      - name: Verify APK
-        shell: bash
-        run: |
-          set -eu
-
-          APK="build/app/outputs/flutter-apk/app-apk-release.apk"
-
-          if [ ! -s "$APK" ]; then
-            echo "APK tidak ditemukan di lokasi yang diharapkan."
-            echo "Daftar APK yang tersedia:"
-            find build/app/outputs -type f -name '*.apk' -print
-            exit 1
-          fi
-
-          echo "APK berhasil dibuat:"
-          ls -lh "$APK"
-
-          echo "Memeriksa isi APK..."
-          unzip -l "$APK" | grep -E 'lib/arm64-v8a/.*\.so' || true
-
-      # 14. Upload APK artifact
-      - name: Upload release APK
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: VX-Pro-noads-arm64-release
-          path: build/app/outputs/flutter-apk/app-apk-release.apk
+          path: build/app/outputs/flutter-apk/app-apk-arm64-v8a-release.apk
           if-no-files-found: error
           retention-days: 7
