@@ -65,6 +65,8 @@ jobs:
         run: |
           echo "$UPLOAD_KEY" | base64 --decode > android/upload-keystore.jks
           echo "$KEY_PROPERTY" | base64 --decode > android/key.properties
+          mkdir -p android/app
+          cp android/upload-keystore.jks android/app/vxpro-release.jks
 
       - name: Build ARM64 release APK
         env:
