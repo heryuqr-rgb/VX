@@ -25,76 +25,14 @@ class PromotionPage extends StatelessWidget {
   final bool showAppBar;
   @override
   Widget build(BuildContext context) {
-    final adsProvider = context.watch<AdsProvider>();
     return Scaffold(
       appBar: showAppBar
           ? getAdaptiveAppBar(
               context,
-              Text(AppLocalizations.of(context)!.promote),
+              const Text('VX Pro'),
             )
           : null,
-      body: Padding(
-        padding: const EdgeInsets.all(8.0),
-        child: LayoutBuilder(
-          builder: (ctx, c) {
-            if (!adsProvider.periodicTask.isRunning) {
-              return FutureBuilder<List<Ad>>(
-                future: adsProvider.fetchAllAds(),
-                builder: (context, snapshot) {
-                  if (snapshot.connectionState == ConnectionState.waiting) {
-                    return const Center(child: CircularProgressIndicator());
-                  }
-                  if (snapshot.hasError) {
-                    return Text(snapshot.error.toString());
-                  }
-                  return ListView.builder(
-                    itemCount: snapshot.data!.length + 1,
-                    itemBuilder: (context, index) {
-                      if (index == snapshot.data!.length) {
-                        return const AdWantedCard();
-                      }
-                      print(snapshot.data![index].toJson());
-                      return Padding(
-                        padding: const EdgeInsets.only(bottom: 10),
-                        child: AdWidget(
-                          ad: snapshot.data![index],
-                          maxHeight: c.maxHeight - 50,
-                          maxWidth: c.maxWidth,
-                        ),
-                      );
-                    },
-                  );
-                },
-              );
-            }
-
-            return ListView.builder(
-              itemCount: adsProvider.adsLen + 1,
-              itemBuilder: (context, index) {
-                if (index > adsProvider.adsLen) {
-                  return null;
-                }
-                if (index == adsProvider.adsLen) {
-                  return const AdWantedCard();
-                }
-
-                final ad = adsProvider.getNextAd();
-                if (ad == null) {
-                  return const AdWantedCard();
-                }
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 10),
-                  child: AdWidget(
-                    ad: ad,
-                    maxHeight: c.maxHeight - 50,
-                    maxWidth: c.maxWidth,
-                  ),
-                );
-              },
-            );
-          },
-        ),
-      ),
+      body: const SizedBox.shrink(),
     );
   }
 }

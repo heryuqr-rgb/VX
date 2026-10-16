@@ -333,25 +333,12 @@ void main() async {
       ),
       ChangeNotifierProvider<AdsProvider>(
         lazy: false,
-        create: (ctx) {
-          final adsProvider = AdsProvider(
-            adsDirectory: path.join(resourceDirectory.path, 'ads'),
-            sharedPreferences: pref,
-            logger: logger,
-            downloadFunction: ctx.read<Downloader>().downloadProxyFirst,
-          );
-          ctx.read<AuthBloc>().stream.listen((state) {
-            if (state.proUser) {
-              adsProvider.stop();
-            } else {
-              adsProvider.start();
-            }
-          });
-          if (!ctx.read<AuthBloc>().state.proUser) {
-            adsProvider.start();
-          }
-          return adsProvider;
-        },
+        create: (ctx) => AdsProvider(
+          adsDirectory: path.join(resourceDirectory.path, 'ads'),
+          sharedPreferences: pref,
+          logger: logger,
+          downloadFunction: ctx.read<Downloader>().downloadProxyFirst,
+        ),
       ),
       ProxyProvider<DatabaseProvider, SetRepo>(
         create: (ctx) => ctx.read<DbHelper>(),
