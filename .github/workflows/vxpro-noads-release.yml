@@ -83,6 +83,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: VX-Pro-noads-arm64-release
-          path: build/app/outputs/flutter-apk/app-apk-arm64-v8a-release.apk
+          path: build/app/outputs/flutter-apk/*arm64-v8a*.apk
           if-no-files-found: error
           retention-days: 7
