@@ -12,16 +12,17 @@ jobs:
     runs-on: ubuntu-24.04
 
     steps:
-      # 1. Checkout source VX Pro no-ads
+      # 1. Checkout source no-ads
       - name: Checkout VX Pro No-Ads
         uses: actions/checkout@v4
         with:
           ref: noads-release
 
-      # 2. Download dependencies
+      # 2. Checkout dependencies
       - name: Checkout dependencies
         shell: bash
         run: |
+          set -eux
           cd ..
 
           git clone \
@@ -33,40 +34,34 @@ jobs:
             https://github.com/heryuqr-rgb/flutter_common.git \
             flutter_common
 
-      # 3. Create required directories and placeholders
+      # 3. Create required files and directories
       - name: Create required files
         shell: bash
         run: |
           set -eux
 
-          # VX Pro assets
           mkdir -p assets/google_fonts
           mkdir -p assets/geo
           mkdir -p assets/ads
 
-          # flutter_common ads assets
           mkdir -p ../flutter_common/packages/ads/assets/ads
 
-          # tm-plugin directories
           mkdir -p ../tm-plugin/tm_windows/assets
           mkdir -p ../tm-plugin/tm_linux/assets
           mkdir -p ../tm-plugin/tm_android/android/libs
 
-          # Windows placeholders
           touch ../tm-plugin/tm_windows/assets/x.dll
           touch ../tm-plugin/tm_windows/assets/wintun.dll
           touch ../tm-plugin/tm_windows/assets/vx_service.zip
 
-          # Linux placeholders
           touch ../tm-plugin/tm_linux/assets/x.so
           touch ../tm-plugin/tm_linux/assets/x
 
-          # Confirm required paths exist
           test -d assets/ads
           test -d ../flutter_common/packages/ads/assets/ads
           test -f ../tm-plugin/tm_linux/assets/x.so
 
-      # 4. Download GeoIP and GeoSite databases
+      # 4. Download geo databases
       - name: Download geo
         shell: bash
         run: |
@@ -118,13 +113,13 @@ jobs:
           flutter-version: '3.47.7'
           cache: true
 
-      # 8. Show Flutter version
+      # 8. Verify toolchain
       - name: Show Flutter version
         run: |
           flutter --version
           java -version
 
-      # 9. Cache pub dependencies
+      # 9. Cache dependencies
       - name: Cache pub dependencies
         uses: actions/cache@v4
         with:
@@ -135,7 +130,7 @@ jobs:
           restore-keys: |
             pub-${{ runner.os }}-
 
-      # 10. Install dependencies
+      # 10. Install Flutter dependencies
       - name: Install Flutter dependencies
         run: flutter pub get
 
@@ -158,16 +153,27 @@ jobs:
             exit 1
           }
 
+          # Decode the existing release keystore
           echo "$UPLOAD_KEY" | base64 --decode \
-            > android/upload-keystore.jks
+            > android/vxpro-release.jks
 
+          # Decode Gradle signing properties
           echo "$KEY_PROPERTY" | base64 --decode \
             > android/key.properties
 
-          test -s android/upload-keystore.jks
+          # Gradle is looking for this exact path
+          mkdir -p android/app
+          cp android/vxpro-release.jks \
+            android/app/vxpro-release.jks
+
+          # Validate the signing files
+          test -s android/vxpro-release.jks
+          test -s android/app/vxpro-release.jks
           test -s android/key.properties
 
-          echo "Android signing files created."
+          echo "Signing files are ready."
+          ls -lh android/vxpro-release.jks
+          ls -lh android/app/vxpro-release.jks
 
       # 12. Build ARM64 release APK
       - name: Build ARM64 Release APK
@@ -194,7 +200,7 @@ jobs:
           APK="build/app/outputs/flutter-apk/app-apk-arm64-v8a-release.apk"
 
           if [ ! -s "$APK" ]; then
-            echo "ARM64 release APK not found at expected path."
+            echo "Expected ARM64 APK not found."
             echo "Available APK files:"
             find build/app/outputs -type f -name '*.apk' -print
             exit 1
