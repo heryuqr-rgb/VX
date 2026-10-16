@@ -43,6 +43,10 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+
+        ndk {
+            abiFilters += listOf("arm64-v8a")
+        }
     }
 
     signingConfigs {
@@ -67,7 +71,7 @@ android {
             resValue(
                 type = "string",
                 name = "app_name",
-                value = "V")
+                value = "VX Pro")
             applicationIdSuffix = ".staging"
         }
         create("production") {
@@ -75,7 +79,7 @@ android {
             resValue(
                 type = "string",
                 name = "app_name",
-                value = "VX")
+                value = "VX Pro")
             applicationIdSuffix = ""
         }
         create("apk") {
@@ -83,7 +87,7 @@ android {
             resValue(
                 type = "string",
                 name = "app_name",
-                value = "VX")
+                value = "VX Pro")
             applicationIdSuffix = ""
         }
     }
